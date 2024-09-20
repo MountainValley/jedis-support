@@ -3,10 +3,7 @@ package com.valley.jedis;
 import org.junit.Assert;
 import org.junit.Test;
 
-/**
- * @author penghuanhu
- * @since 2024/9/14
- **/
+
 public class RedisTemplateTest {
     @Test
     public void simpleJedisPoolFactoryTest(){

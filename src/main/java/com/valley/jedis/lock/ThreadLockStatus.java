@@ -2,7 +2,7 @@ package com.valley.jedis.lock;
 
 class ThreadLockStatus {
     private long lockCount;
-    private String lockValue;
+    private final String lockValue;
 
     public ThreadLockStatus(String lockValue) {
         this.lockValue = lockValue;

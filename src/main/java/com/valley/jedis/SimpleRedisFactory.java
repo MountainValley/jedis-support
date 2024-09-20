@@ -9,10 +9,7 @@ import redis.clients.jedis.providers.PooledConnectionProvider;
 import java.io.IOException;
 import java.util.Properties;
 
-/**
- * @author penghuanhu
- * @since 2024/9/14
- **/
+
 public class SimpleRedisFactory implements RedisFactory {
     Logger logger = LoggerFactory.getLogger(getClass());
 

@@ -11,10 +11,7 @@ import java.util.Properties;
 import java.util.Set;
 import java.util.stream.Collectors;
 
-/**
- * @author penghuanhu
- * @since 2024/9/14
- **/
+
 public class ClusterRedisFactory implements RedisFactory {
     Logger logger = LoggerFactory.getLogger(getClass());
     private String configName = "clusterJedis.properties";

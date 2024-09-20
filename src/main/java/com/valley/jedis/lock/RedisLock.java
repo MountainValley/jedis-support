@@ -26,8 +26,6 @@ import java.util.concurrent.TimeUnit;
  *     <li>暂时不支持死锁识别。获取锁需要提供最长等待时间参数(waitSeconds)以避免长时间死锁导致线程被永久阻塞。（TODO:可以考虑在redis上记录当前线程已持有的锁和正在申请中的锁信息以实现死锁识别。）</li>
  * </ul>
  *
- * @author penghuanhu
- * @since 2024/9/18
  **/
 public class RedisLock {
     private static final Logger logger = LoggerFactory.getLogger(RedisLock.class);
@@ -35,7 +33,7 @@ public class RedisLock {
     /**
      * 记录当前线程锁状态
      */
-    private static final ThreadLocal<Map<String, ThreadLockStatus>> threadLock = ThreadLocal.withInitial(HashMap::new);
+    private static final ThreadLocal<Map<String, ThreadLockStatus>> THREAD_LOCK = ThreadLocal.withInitial(HashMap::new);
 
     /**
      * 记录所有线程已获取的锁状态
@@ -45,16 +43,16 @@ public class RedisLock {
     /**
      * 定时续活线程池
      */
-    private static final ScheduledThreadPoolExecutor executor = new ScheduledThreadPoolExecutor(1, r -> new Thread(r, "RedisLock-WatchDog"));
+    private static final ScheduledThreadPoolExecutor SCHEDULED_THREAD_POOL_EXECUTOR = new ScheduledThreadPoolExecutor(1, r -> new Thread(r, "RedisLock-WatchDog"));
 
 
     private final RedisTemplate redisTemplate;
 
     public RedisLock(RedisTemplate redisTemplate) {
         this.redisTemplate = redisTemplate;
-        executor.setRemoveOnCancelPolicy(true);
+        SCHEDULED_THREAD_POOL_EXECUTOR.setRemoveOnCancelPolicy(true);
         long schedulePeriod = LockConfig.DEFAULT_REDIS_KEY_EXPIRE_MILLIS / 3;
-        executor.scheduleAtFixedRate(this::tryProlong, schedulePeriod, schedulePeriod, TimeUnit.MILLISECONDS);
+        SCHEDULED_THREAD_POOL_EXECUTOR.scheduleAtFixedRate(this::tryProlong, schedulePeriod, schedulePeriod, TimeUnit.MILLISECONDS);
     }
 
     /**
@@ -83,7 +81,7 @@ public class RedisLock {
         String lockValue;
 
         //锁重入
-        ThreadLockStatus threadLockStatus = threadLock.get().get(lockKey);
+        ThreadLockStatus threadLockStatus = THREAD_LOCK.get().get(lockKey);
         if (threadLockStatus != null) {
             LockStatus lockStatus = LOCK_STATUS_CONTAINER.getLockStatus(lockKey);
             if (lockStatus != null && Objects.equals(lockStatus.getLockValue(), threadLockStatus.getLockValue())) {
@@ -139,9 +137,9 @@ public class RedisLock {
 
             if (acquired) {
                 ThreadLockStatus threadLockStatus = new ThreadLockStatus(lockValue);
-                threadLock.get().put(lockKey, threadLockStatus);
+                THREAD_LOCK.get().put(lockKey, threadLockStatus);
                 logger.debug("put threadLocal key:{} threadLockStatus:{}", lockKey, threadLockStatus);
-                LockStatus lockStatus = new LockStatus(expireAtMilliseconds, lockKey, lockValue, expiredTimeRenewable, Thread.currentThread());
+                LockStatus lockStatus = new LockStatus(expireAtMilliseconds, lockKey, lockValue, expiredTimeRenewable);
                 LOCK_STATUS_CONTAINER.add(lockStatus);
             }
         } catch (Exception e) {
@@ -162,7 +160,7 @@ public class RedisLock {
             throw new IllegalArgumentException("blank argument founded. lockKey:" + lockKey + "lockValue:" + lockValue);
         }
         //重入锁处理
-        ThreadLockStatus threadLockStatus = threadLock.get().get(lockKey);
+        ThreadLockStatus threadLockStatus = THREAD_LOCK.get().get(lockKey);
         if (threadLockStatus == null) {
             logger.warn("release lock failed. the lock can only be released by it's owner. lockKey:{},lockValue:{}", lockKey, lockValue);
             return false;
@@ -174,7 +172,7 @@ public class RedisLock {
             return true;
         }
 
-        threadLock.get().remove(lockKey);
+        THREAD_LOCK.get().remove(lockKey);
         logger.debug("remove threadLocal key:{} threadLockStatus:{}", lockKey, threadLockStatus);
         LOCK_STATUS_CONTAINER.remove(lockKey, lockValue);
         Object object = redisTemplate.getUnifiedJedis().eval(LockConfig.LUA_SCRIPT_RELEASE_LOCK, Collections.singletonList(lockKey), Collections.singletonList(lockValue));
@@ -210,9 +208,7 @@ public class RedisLock {
      */
     private void tryProlong() {
         try {
-            Iterator<LockStatus> iterator = LOCK_STATUS_CONTAINER.getLockStatus().iterator();
-            while (iterator.hasNext()) {
-                LockStatus lockStatus = iterator.next();
+            for (LockStatus lockStatus : LOCK_STATUS_CONTAINER.getLockStatus()) {
                 if (lockStatus.getExpireAt() < System.currentTimeMillis()) {
                     LOCK_STATUS_CONTAINER.remove(lockStatus.getLockKey(), lockStatus.getLockValue());
                 } else if (lockStatus.isExpiredTimeRenewable() && lockStatus.getExpireAt() < System.currentTimeMillis() + LockConfig.DEFAULT_REDIS_KEY_EXPIRE_MILLIS) {

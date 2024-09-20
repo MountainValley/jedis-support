@@ -8,16 +8,8 @@ import org.junit.Test;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
-import java.util.Comparator;
-import java.util.NavigableSet;
-import java.util.Objects;
-import java.util.UUID;
 import java.util.concurrent.*;
 
-/**
- * @author penghuanhu
- * @since 2024/9/18
- **/
 public class RedisLockTest {
     Logger logger = LoggerFactory.getLogger(getClass());
     private static RedisLock redisLock;
@@ -83,9 +75,8 @@ public class RedisLockTest {
         });
 
         Thread thread2 = new Thread(() -> {
-            String lockValue = "";
             try {
-                lockValue = redisLock.tryLock(LOCK_KEY, 18);
+                String lockValue = redisLock.tryLock(LOCK_KEY, 18);
                 logger.debug("Thread:{} acquired a lock key:{} value:{}", Thread.currentThread(), LOCK_KEY, lockValue);
                 Assert.assertNull(lockValue);
             } finally {

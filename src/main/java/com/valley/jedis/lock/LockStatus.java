@@ -1,18 +1,18 @@
 package com.valley.jedis.lock;
 
+import java.util.Objects;
+
 class LockStatus {
     private final String lockKey;
     private final String lockValue;
     private final boolean expiredTimeRenewable;
-    private final Thread owner;
     private long expireAt;
 
-    public LockStatus(long expireAt, String lockKey, String lockValue, boolean expiredTimeRenewable, Thread owner) {
+    public LockStatus(long expireAt, String lockKey, String lockValue, boolean expiredTimeRenewable) {
         this.expireAt = expireAt;
         this.lockKey = lockKey;
         this.lockValue = lockValue;
         this.expiredTimeRenewable = expiredTimeRenewable;
-        this.owner = owner;
     }
 
     public long getExpireAt() {
@@ -35,8 +35,21 @@ class LockStatus {
         return expiredTimeRenewable;
     }
 
-    public Thread getOwner() {
-        return owner;
+    @Override
+    public boolean equals(Object o) {
+        if (this == o) {
+            return true;
+        }
+        if (!(o instanceof LockStatus)) {
+            return false;
+        }
+        LockStatus that = (LockStatus) o;
+        return Objects.equals(lockKey, that.lockKey) && Objects.equals(lockValue, that.lockValue);
+    }
+
+    @Override
+    public int hashCode() {
+        return Objects.hash(lockKey, lockValue);
     }
 
     @Override
@@ -45,7 +58,6 @@ class LockStatus {
                 "lockKey='" + lockKey + '\'' +
                 ", lockValue='" + lockValue + '\'' +
                 ", expiredTimeRenewable=" + expiredTimeRenewable +
-                ", owner=" + owner +
                 ", expireAt=" + expireAt +
                 '}';
     }

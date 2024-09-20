@@ -3,10 +3,7 @@ package com.valley.jedis;
 import redis.clients.jedis.UnifiedJedis;
 import redis.clients.jedis.params.SetParams;
 
-/**
- * @author penghuanhu
- * @since 2024/9/14
- **/
+
 public class RedisTemplate {
     private final RedisFactory redisFactory;
     public static final String OK = "OK";
