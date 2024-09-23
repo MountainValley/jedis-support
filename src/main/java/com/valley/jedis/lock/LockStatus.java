@@ -6,6 +6,7 @@ class LockStatus {
     private final String lockKey;
     private final String lockValue;
     private final boolean expiredTimeRenewable;
+    private final Thread ownerThread;
     private long expireAt;
 
     public LockStatus(long expireAt, String lockKey, String lockValue, boolean expiredTimeRenewable) {
@@ -13,6 +14,7 @@ class LockStatus {
         this.lockKey = lockKey;
         this.lockValue = lockValue;
         this.expiredTimeRenewable = expiredTimeRenewable;
+        this.ownerThread = Thread.currentThread();
     }
 
     public long getExpireAt() {
@@ -33,6 +35,10 @@ class LockStatus {
 
     public boolean isExpiredTimeRenewable() {
         return expiredTimeRenewable;
+    }
+
+    public boolean isOwnerThreadAlive(){
+        return ownerThread.isAlive();
     }
 
     @Override

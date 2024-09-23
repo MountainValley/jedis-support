@@ -158,24 +158,39 @@ public class RedisLock {
      * @return 锁释放结果
      */
     public boolean releaseLock(String lockKey, String lockValue) {
+        return this.releaseLock(lockKey,lockValue,true);
+    }
+
+    /**
+     * 锁释放
+     *
+     * @param lockKey   redis lock key
+     * @param lockValue redis lock value
+     * @param deleteByOwner 是否是线程释放自己的锁
+     * @return 锁释放结果
+     */
+    private boolean releaseLock(String lockKey, String lockValue, boolean deleteByOwner) {
         if (StringUtils.isAnyBlank(lockKey, lockValue)) {
             throw new IllegalArgumentException("blank argument founded. lockKey:" + lockKey + "lockValue:" + lockValue);
         }
         //重入锁处理
-        ThreadLockStatus threadLockStatus = THREAD_LOCK.get().get(lockKey);
-        if (threadLockStatus == null) {
-            logger.warn("release lock failed. the lock can only be released by it's owner. lockKey:{},lockValue:{}", lockKey, lockValue);
-            return false;
-        } else if (!Objects.equals(lockValue, threadLockStatus.getLockValue())) {
-            logger.warn("releaseLock failed. invalid lockValue. key:{} inputValue:{} acquiredValue:{}", lockKey, lockValue, threadLockStatus.getLockValue());
-            return false;
-        }
-        if (threadLockStatus.decrLockCount() > 0) {
-            return true;
+        if (deleteByOwner){
+            ThreadLockStatus threadLockStatus = THREAD_LOCK.get().get(lockKey);
+            if (threadLockStatus == null) {
+                logger.warn("release lock failed. the lock can only be released by it's owner. lockKey:{},lockValue:{}", lockKey, lockValue);
+                return false;
+            } else if (!Objects.equals(lockValue, threadLockStatus.getLockValue())) {
+                logger.warn("releaseLock failed. invalid lockValue. key:{} inputValue:{} acquiredValue:{}", lockKey, lockValue, threadLockStatus.getLockValue());
+                return false;
+            }
+            if (threadLockStatus.decrLockCount() > 0) {
+                return true;
+            }
+
+            THREAD_LOCK.get().remove(lockKey);
+            logger.debug("remove threadLocal key:{} threadLockStatus:{}", lockKey, threadLockStatus);
         }
 
-        THREAD_LOCK.get().remove(lockKey);
-        logger.debug("remove threadLocal key:{} threadLockStatus:{}", lockKey, threadLockStatus);
         LOCK_STATUS_CONTAINER.remove(lockKey, lockValue);
         Object object = unifiedJedis.eval(LockConfig.LUA_SCRIPT_RELEASE_LOCK, Collections.singletonList(lockKey), Collections.singletonList(lockValue));
         if (object instanceof Long && (Long) object == 1L) {
@@ -211,12 +226,14 @@ public class RedisLock {
     private void tryProlong() {
         try {
             for (LockStatus lockStatus : LOCK_STATUS_CONTAINER.getLockStatus()) {
-                if (lockStatus.getExpireAt() < System.currentTimeMillis()) {
-                    LOCK_STATUS_CONTAINER.remove(lockStatus.getLockKey(), lockStatus.getLockValue());
-                } else if (lockStatus.isExpiredTimeRenewable() && lockStatus.getExpireAt() < System.currentTimeMillis() + LockConfig.DEFAULT_REDIS_KEY_EXPIRE_MILLIS) {
-                    prolongLock(lockStatus);
-                } else {
-                    break;
+                if (!lockStatus.isOwnerThreadAlive() || lockStatus.getExpireAt() < System.currentTimeMillis()){
+                    releaseLock(lockStatus.getLockKey(),lockStatus.getLockValue(),false);
+                } else if (lockStatus.isExpiredTimeRenewable()) {
+                    if (lockStatus.getExpireAt() < System.currentTimeMillis() + LockConfig.DEFAULT_REDIS_KEY_EXPIRE_MILLIS) {
+                        prolongLock(lockStatus);
+                    } else {
+                        break;
+                    }
                 }
             }
         } catch (Exception e) {
