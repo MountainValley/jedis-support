@@ -1,5 +1,7 @@
 package com.valley.jedis;
 
+import com.valley.jedis.client.factory.RedisFactory;
+import com.valley.jedis.client.factory.SimpleRedisFactory;
 import com.valley.jedis.lock.RedisLock;
 import org.junit.Assert;
 import org.junit.Before;
@@ -13,19 +15,18 @@ import java.util.concurrent.*;
 public class RedisLockTest {
     Logger logger = LoggerFactory.getLogger(getClass());
     private static RedisLock redisLock;
-    private static RedisTemplate redisTemplate;
     private static final String LOCK_KEY = "testLock";
+    private static RedisFactory redisFactory;
 
     @BeforeClass
     public static void beforeClass() {
-        RedisFactory redisFactory = new SimpleRedisFactory();
-        redisTemplate = new RedisTemplate(redisFactory);
-        redisLock = new RedisLock(redisTemplate);
+        redisFactory = new SimpleRedisFactory();
+        redisLock = new RedisLock(redisFactory);
     }
 
     @Before
     public void before(){
-        redisTemplate.del(LOCK_KEY);
+        redisFactory.getUnifiedJedis().del(LOCK_KEY);
     }
 
     @Test
@@ -34,13 +35,18 @@ public class RedisLockTest {
         Assert.assertNotNull(lockValue);
 
         long endTime = System.currentTimeMillis() + 30 * 1000L;
-        new Thread(() -> {
+        Thread thread = new Thread(() -> {
             while (System.currentTimeMillis() <= endTime) {
                 Assert.assertNull(redisLock.tryLock(LOCK_KEY, 2));
                 Assert.assertFalse(redisLock.releaseLock(LOCK_KEY,lockValue));
             }
-        }).start();
-
+        });
+        thread.start();
+        try {
+            thread.join();
+        } catch (InterruptedException e) {
+            throw new RuntimeException(e);
+        }
         Assert.assertTrue(redisLock.releaseLock(LOCK_KEY,lockValue));
     }
 

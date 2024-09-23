@@ -1,4 +1,4 @@
-package com.valley.jedis;
+package com.valley.jedis.client.factory;
 
 import redis.clients.jedis.UnifiedJedis;
 

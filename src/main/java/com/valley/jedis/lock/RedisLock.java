@@ -1,9 +1,10 @@
 package com.valley.jedis.lock;
 
-import com.valley.jedis.RedisTemplate;
+import com.valley.jedis.client.factory.RedisFactory;
 import com.valley.jedis.util.StringUtils;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
+import redis.clients.jedis.UnifiedJedis;
 import redis.clients.jedis.params.SetParams;
 
 import java.text.SimpleDateFormat;
@@ -33,23 +34,24 @@ public class RedisLock {
     /**
      * 记录当前线程锁状态
      */
-    private static final ThreadLocal<Map<String, ThreadLockStatus>> THREAD_LOCK = ThreadLocal.withInitial(HashMap::new);
+    private final ThreadLocal<Map<String, ThreadLockStatus>> THREAD_LOCK = ThreadLocal.withInitial(HashMap::new);
 
     /**
      * 记录所有线程已获取的锁状态
      */
-    private static final LockStatusContainer LOCK_STATUS_CONTAINER = new LockStatusContainer();
+    private final LockStatusContainer LOCK_STATUS_CONTAINER = new LockStatusContainer();
 
     /**
      * 定时续活线程池
      */
-    private static final ScheduledThreadPoolExecutor SCHEDULED_THREAD_POOL_EXECUTOR = new ScheduledThreadPoolExecutor(1, r -> new Thread(r, "RedisLock-WatchDog"));
+    private final ScheduledThreadPoolExecutor SCHEDULED_THREAD_POOL_EXECUTOR = new ScheduledThreadPoolExecutor(1, r -> new Thread(r, "RedisLock-WatchDog"));
 
 
-    private final RedisTemplate redisTemplate;
+    private final UnifiedJedis unifiedJedis;
 
-    public RedisLock(RedisTemplate redisTemplate) {
-        this.redisTemplate = redisTemplate;
+    public RedisLock(RedisFactory redisFactory) {
+        this.unifiedJedis = redisFactory.getUnifiedJedis();
+
         SCHEDULED_THREAD_POOL_EXECUTOR.setRemoveOnCancelPolicy(true);
         long schedulePeriod = LockConfig.DEFAULT_REDIS_KEY_EXPIRE_MILLIS / 3;
         SCHEDULED_THREAD_POOL_EXECUTOR.scheduleAtFixedRate(this::tryProlong, schedulePeriod, schedulePeriod, TimeUnit.MILLISECONDS);
@@ -131,9 +133,9 @@ public class RedisLock {
             expireAtMilliseconds = System.currentTimeMillis() + releaseSeconds * 1000L;
         }
         try {
-            String resp = redisTemplate.set(lockKey, lockValue, new SetParams().nx().pxAt(expireAtMilliseconds));
+            String resp = unifiedJedis.set(lockKey, lockValue, new SetParams().nx().pxAt(expireAtMilliseconds));
             logger.debug("redis set lock key:{} value:{} expireAt:{} resp:{}", lockKey, lockValue, new SimpleDateFormat("yyyy-MM-dd HH:mm:ss").format(expireAtMilliseconds), resp);
-            acquired = RedisTemplate.OK.equals(resp);
+            acquired = "OK".equals(resp);
 
             if (acquired) {
                 ThreadLockStatus threadLockStatus = new ThreadLockStatus(lockValue);
@@ -175,7 +177,7 @@ public class RedisLock {
         THREAD_LOCK.get().remove(lockKey);
         logger.debug("remove threadLocal key:{} threadLockStatus:{}", lockKey, threadLockStatus);
         LOCK_STATUS_CONTAINER.remove(lockKey, lockValue);
-        Object object = redisTemplate.getUnifiedJedis().eval(LockConfig.LUA_SCRIPT_RELEASE_LOCK, Collections.singletonList(lockKey), Collections.singletonList(lockValue));
+        Object object = unifiedJedis.eval(LockConfig.LUA_SCRIPT_RELEASE_LOCK, Collections.singletonList(lockKey), Collections.singletonList(lockValue));
         if (object instanceof Long && (Long) object == 1L) {
             logger.debug("releaseLock key:{} value:{}", lockKey, lockValue);
             return true;
@@ -194,7 +196,7 @@ public class RedisLock {
         String lockKey = lockStatus.getLockKey();
         String lockValue = lockStatus.getLockValue();
         long newExpireAt = System.currentTimeMillis() + (LockConfig.DEFAULT_REDIS_KEY_EXPIRE_MILLIS * 4 / 3);
-        Object object = redisTemplate.getUnifiedJedis().eval(LockConfig.LUA_SCRIPT_PROLONG_LOCK, Collections.singletonList(lockKey), Arrays.asList(lockValue, newExpireAt + ""));
+        Object object = unifiedJedis.eval(LockConfig.LUA_SCRIPT_PROLONG_LOCK, Collections.singletonList(lockKey), Arrays.asList(lockValue, newExpireAt + ""));
         if (object instanceof Long && (Long) object == 1L) {
             lockStatus.setExpireAt(newExpireAt);
             logger.debug("prolongLock success. lockKey:{} lockValue:{} reset expireAt:{}", lockKey, lockValue, newExpireAt);
